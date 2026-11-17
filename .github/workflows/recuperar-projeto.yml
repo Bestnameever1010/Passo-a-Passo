@@ -1,0 +1,92 @@
+name: Recuperar projeto Passo a Passo
+
+on:
+  push:
+    paths:
+      - ".github/workflows/recuperar-projeto.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  recuperar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Separar os 206 arquivos
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const lines = fs.readFileSync(
+            'codigo-completo-app.txt',
+            'utf8'
+          ).replace(/\r\n/g, '\n').split('\n');
+
+          const headers = [];
+
+          for (let i = 0; i < lines.length; i++) {
+            const m = lines[i].match(
+              /^ARQUIVO (\d+)\/(\d+): (.+)$/
+            );
+            if (m) headers.push({ i, path: m[3] });
+          }
+
+          if (headers.length !== 206) {
+            throw new Error(
+              `Esperados 206 arquivos; encontrados ${headers.length}.`
+            );
+          }
+
+          for (let n = 0; n < headers.length; n++) {
+            const { i, path: filePath } = headers[n];
+
+            if (
+              filePath.startsWith('/') ||
+              filePath.split('/').includes('..')
+            ) {
+              throw new Error(`Caminho inseguro: ${filePath}`);
+            }
+
+            const start = i + 2;
+            const end = n + 1 < headers.length
+              ? headers[n + 1].i - 1
+              : lines.length;
+
+            const body = lines.slice(start, end);
+
+            while (
+              body.length &&
+              body[body.length - 1].trim() === ''
+            ) {
+              body.pop();
+            }
+
+            const content = body.length
+              ? body.join('\n') + '\n'
+              : '';
+
+            fs.mkdirSync(path.dirname(filePath), {
+              recursive: true
+            });
+
+            fs.writeFileSync(filePath, content, 'utf8');
+          }
+
+          console.log(`Recuperados ${headers.length} arquivos.`);
+          NODE
+
+      - name: Salvar arquivos no GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteracao."
+          else
+            git commit -m "Recupera estrutura completa do projeto"
+            git push
+          fi
